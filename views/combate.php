@@ -7,21 +7,37 @@ if (session_status() === PHP_SESSION_NONE) {
 
 $playerId = 1;
 
-if (empty($_SESSION['combate_npc_id'])) {
+$haCombateAtivo = !empty($_SESSION['combate_npc_id']);
+$haPosCombatePendente = !empty($_SESSION['pos_combate']['npc_id']);
+
+if (!$haCombateAtivo && !$haPosCombatePendente) {
     header('Location: jogo.php');
     exit;
 }
 
-$npcId = (int)$_SESSION['combate_npc_id'];
+if (!empty($_SESSION['combate_npc_id'])) {
+    $npcId = (int)$_SESSION['combate_npc_id'];
+} elseif (!empty($_SESSION['pos_combate']['npc_id'])) {
+    $npcId = (int)$_SESSION['pos_combate']['npc_id'];
+} else {
+    header('Location: jogo.php');
+    exit;
+}
 
 $controller = new CombateController($pdo, $playerId);
-$controller->prepararInicioCombate($npcId);
+
+if ($haCombateAtivo) {
+    $controller->prepararInicioCombate($npcId);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $controller->processarAcao($_POST['acao'] ?? '', $npcId);
     $controller->limparCombateSeNpcDerrotado($npcId);
 
-    if (empty($_SESSION['combate_npc_id'])) {
+    $haCombateAtivoDepois = !empty($_SESSION['combate_npc_id']);
+    $haPosCombateDepois = !empty($_SESSION['pos_combate']['npc_id']);
+
+    if (!$haCombateAtivoDepois && !$haPosCombateDepois) {
         header('Location: jogo.php');
         exit;
     }
@@ -41,6 +57,7 @@ $posturaPlayer = !empty($_SESSION['postura_defensiva_player']);
 $posturaNpc = !empty($_SESSION['postura_defensiva_npc']);
 $reacaoPlayer = $_SESSION['reacao_defensiva_player'] ?? null;
 $reacaoNpc = $_SESSION['reacao_defensiva_npc'] ?? null;
+$haPosCombatePendente = $controller->existePosCombatePendente();
 
 function nomeReacao(?string $reacao): string
 {
@@ -52,8 +69,14 @@ function nomeReacao(?string $reacao): string
     };
 }
 
-if (!$npc || !empty($npc['morto'])) {
-    unset($_SESSION['combate_npc_id']);
+if (!$npc) {
+    unset($_SESSION['combate_npc_id'], $_SESSION['pos_combate']);
+    header('Location: jogo.php');
+    exit;
+}
+
+if (!empty($npc['morto']) && !$haPosCombatePendente) {
+    unset($_SESSION['combate_npc_id'], $_SESSION['pos_combate']);
     header('Location: jogo.php');
     exit;
 }
@@ -88,6 +111,24 @@ function nomeEstadoVida(string $estado): string
 
 $estadoPlayer = (string)($player['estado_vida'] ?? 'saudavel');
 $estadoNpc = (string)($npc['estado_vida'] ?? 'saudavel');
+
+$textoAcao = '';
+$placeholderAcao = '';
+$textoBotao = '';
+
+if ($haPosCombatePendente) {
+    $textoAcao = 'O combate terminou, mas o desfecho ainda não foi resolvido. Use <strong>/pos poupar</strong> ou <strong>/pos executar</strong>.';
+    $placeholderAcao = '/pos poupar ou /pos executar';
+    $textoBotao = 'Resolver desfecho';
+} elseif ($turnoAtual === 'player') {
+    $textoAcao = 'É a sua vez. Use <strong>/atk</strong>, <strong>/def postura</strong>, <strong>/def bloqueio</strong>, <strong>/def esquiva</strong> ou <strong>/def contra-ataque</strong>.';
+    $placeholderAcao = '/atk *ataco com minha espada* ou /def contra-ataque';
+    $textoBotao = 'Executar ação';
+} else {
+    $textoAcao = 'É a vez do inimigo. Use <strong>/turno</strong> para avançar.';
+    $placeholderAcao = '/turno para avançar a vez do inimigo';
+    $textoBotao = 'Avançar turno do inimigo';
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -160,30 +201,6 @@ $estadoNpc = (string)($npc['estado_vida'] ?? 'saudavel');
             border-radius: 6px;
             background: #181818;
             border: 1px solid #2d2d2d;
-        }
-
-        .status-grid {
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            gap: 12px;
-            align-items: start;
-        }
-
-        .combatente {
-            background: #181818;
-            border: 1px solid #2d2d2d;
-            border-radius: 8px;
-            padding: 12px;
-        }
-
-        .versus {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            font-weight: bold;
-            color: #7db3ff;
-            min-width: 60px;
         }
 
         .recursos {
@@ -422,32 +439,18 @@ $estadoNpc = (string)($npc['estado_vida'] ?? 'saudavel');
             </div>
         </div>
 
-
-
         <div class="box">
             <h2>Ação</h2>
-            <p>
-                <?php if ($turnoAtual === 'player'): ?>
-                    É a sua vez. Use <strong>/atk</strong>, <strong>/def postura</strong>, <strong>/def bloqueio</strong>, <strong>/def esquiva</strong> ou <strong>/def contra-ataque</strong>.
-                <?php else: ?>
-                    É a vez do inimigo. Use <strong>/turno</strong> para avançar.
-                <?php endif; ?>
-            </p>
+            <p><?= $textoAcao ?></p>
             <form method="POST">
                 <input
                     type="text"
                     name="acao"
-                    placeholder="<?= $turnoAtual === 'player'
-                                        ? '/atk *ataco com minha espada* ou /def contra-ataque'
-                                        : '/turno para avançar a vez do inimigo' ?>"
+                    placeholder="<?= htmlspecialchars($placeholderAcao) ?>"
                     required>
-                <button type="submit">
-                    <?= $turnoAtual === 'player' ? 'Executar ação' : 'Avançar turno do inimigo' ?>
-                </button>
+                <button type="submit"><?= htmlspecialchars($textoBotao) ?></button>
             </form>
         </div>
-
-
 
         <div class="box">
             <h2>Log do combate</h2>

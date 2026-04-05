@@ -160,9 +160,6 @@ class Evento
         return $eventos;
     }
 
-
-
-    //consulta se o personagem já visitou o local
     public function personagemJaVisitouLocal(int $personagemId, int $localId): bool
     {
         return $this->jaAconteceu(
@@ -174,7 +171,6 @@ class Evento
         );
     }
 
-    //consulta se o personagem ja conhece o NPC
     public function personagemJaConheceNpc(int $personagemId, int $npcId): bool
     {
         return $this->jaAconteceu(
@@ -185,29 +181,43 @@ class Evento
         );
     }
 
-    //consulta se o personagem ja derrotou o NPC
     public function personagemJaDerrotouNpc(int $personagemId, int $npcId): bool
     {
-        return $this->jaAconteceu(
-            'combate',
-            'npc_derrotado',
-            $personagemId,
-            $npcId
-        );
+        $stmt = $this->pdo->prepare("
+            SELECT id
+            FROM eventos_mundo
+            WHERE personagem_id = ?
+              AND npc_id = ?
+              AND tipo_evento = 'combate'
+              AND (
+                  subtipo_evento = 'npc_derrotado'
+                  OR subtipo_evento = 'npc_poupado'
+                  OR subtipo_evento = 'npc_executado'
+              )
+            LIMIT 1
+        ");
+        $stmt->execute([$personagemId, $npcId]);
+
+        return (bool) $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-
-    //consulta sobre ter itens importantes
     public function personagemPossuiItemImportante(int $personagemId, int $objetoId): bool
     {
-        return $this->jaAconteceu(
-            'item',
-            'item_importante_obtido',
-            $personagemId,
-            null,
-            null,
-            $objetoId
-        );
+        $stmt = $this->pdo->prepare("
+            SELECT id
+            FROM eventos_mundo
+            WHERE personagem_id = ?
+              AND tipo_evento = 'item'
+              AND (
+                  subtipo_evento = 'item_importante_obtido'
+                  OR subtipo_evento = 'item_importante_em_posse'
+              )
+              AND referencia_id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$personagemId, $objetoId]);
+
+        return (bool) $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function npcJaReagiuAoGrimorio(int $personagemId, int $npcId): bool
@@ -215,6 +225,74 @@ class Evento
         return $this->jaAconteceu(
             'npc',
             'reacao_grimorio',
+            $personagemId,
+            $npcId
+        );
+    }
+
+    public function buscarUltimoEventoEntrePersonagemENpc(
+        int $personagemId,
+        int $npcId,
+        ?string $tipoEvento = null,
+        ?string $subtipoEvento = null
+    ): ?array {
+        $sql = "SELECT *
+                FROM eventos_mundo
+                WHERE personagem_id = :personagem_id
+                  AND npc_id = :npc_id";
+
+        $params = [
+            ':personagem_id' => $personagemId,
+            ':npc_id' => $npcId
+        ];
+
+        if ($tipoEvento !== null) {
+            $sql .= " AND tipo_evento = :tipo_evento";
+            $params[':tipo_evento'] = $tipoEvento;
+        }
+
+        if ($subtipoEvento !== null) {
+            $sql .= " AND subtipo_evento = :subtipo_evento";
+            $params[':subtipo_evento'] = $subtipoEvento;
+        }
+
+        $sql .= " ORDER BY id DESC LIMIT 1";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        $evento = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$evento) {
+            return null;
+        }
+
+        if (!empty($evento['dados_json'])) {
+            $evento['dados_json'] = json_decode($evento['dados_json'], true);
+        }
+
+        return $evento;
+    }
+
+    public function npcFoiPoupadoRecentemente(int $personagemId, int $npcId): bool
+    {
+        $evento = $this->buscarUltimoEventoEntrePersonagemENpc(
+            $personagemId,
+            $npcId,
+            'combate'
+        );
+
+        if (!$evento) {
+            return false;
+        }
+
+        return ($evento['subtipo_evento'] ?? '') === 'npc_poupado';
+    }
+    public function npcJaReagiuAposPoupado(int $personagemId, int $npcId): bool
+    {
+        return $this->jaAconteceu(
+            'npc',
+            'kael_reagiu_apos_poupado',
             $personagemId,
             $npcId
         );

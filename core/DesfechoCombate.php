@@ -1,14 +1,19 @@
 <?php
 
+require_once __DIR__ . '/Evento.php';
+require_once __DIR__ . '/EventoService.php';
+
 class DesfechoCombate
 {
     private PDO $pdo;
     private Evento $evento;
+    private EventoService $eventoService;
 
     public function __construct(PDO $pdo)
     {
         $this->pdo = $pdo;
         $this->evento = new Evento($pdo);
+        $this->eventoService = new EventoService($pdo);
     }
 
     public function buscarPersonagemPorId(int $personagemId): ?array
@@ -74,19 +79,23 @@ class DesfechoCombate
 
             $npcAtualizado = $this->buscarPersonagemPorId((int)$npc['id']);
 
-            $this->registrarEvento(
-                $player,
-                $npc,
-                'npc_poupado',
-                'Inimigo poupado',
-                $player['nome'] . ' poupou ' . $npc['nome'] . ' após derrotá-lo em combate.',
-                [
+            $this->eventoService->registrar([
+                'tipo' => 'combate',
+                'subtipo' => 'npc_poupado',
+                'personagem_id' => (int)$player['id'],
+                'npc_id' => (int)$npc['id'],
+                'local_id' => (int)($player['local_atual_id'] ?? 0),
+                'titulo' => 'Inimigo poupado',
+                'descricao' => $player['nome'] . ' poupou ' . $npc['nome'] . ' após derrotá-lo em combate.',
+                'dados' => [
                     'npc_nome' => $npc['nome'],
                     'escolha' => 'poupar',
                     'vida_final' => 1,
-                    'estado_vida_final' => 'critico'
+                    'estado_vida_final' => 'critico',
+                    'npc_id' => (int)$npc['id'],
+                    'personagem_id' => (int)$player['id']
                 ]
-            );
+            ]);
 
             $this->pdo->commit();
 
@@ -135,20 +144,24 @@ class DesfechoCombate
 
             $npcAtualizado = $this->buscarPersonagemPorId((int)$npc['id']);
 
-            $this->registrarEvento(
-                $player,
-                $npc,
-                'npc_executado',
-                'Inimigo executado',
-                $player['nome'] . ' executou ' . $npc['nome'] . ' após derrotá-lo em combate.',
-                [
+            $this->eventoService->registrar([
+                'tipo' => 'combate',
+                'subtipo' => 'npc_executado',
+                'personagem_id' => (int)$player['id'],
+                'npc_id' => (int)$npc['id'],
+                'local_id' => (int)($player['local_atual_id'] ?? 0),
+                'titulo' => 'Inimigo executado',
+                'descricao' => $player['nome'] . ' executou ' . $npc['nome'] . ' após derrotá-lo em combate.',
+                'dados' => [
                     'npc_nome' => $npc['nome'],
                     'escolha' => 'executar',
                     'vida_final' => 0,
                     'estado_vida_final' => 'morto',
-                    'causa_morte' => 'Executado após combate'
+                    'causa_morte' => 'Executado após combate',
+                    'npc_id' => (int)$npc['id'],
+                    'personagem_id' => (int)$player['id']
                 ]
-            );
+            ]);
 
             $this->pdo->commit();
 
@@ -205,30 +218,5 @@ class DesfechoCombate
             'ok' => true,
             'mensagem' => null
         ];
-    }
-
-    private function registrarEvento(
-        array $player,
-        array $npc,
-        string $subtipoEvento,
-        string $titulo,
-        string $descricao,
-        array $dadosJson = []
-    ): void {
-        try {
-            $this->evento->registrarSeNaoExistir([
-                'tipo_evento'    => 'combate',
-                'subtipo_evento' => $subtipoEvento,
-                'personagem_id'  => (int)$player['id'],
-                'npc_id'         => (int)$npc['id'],
-                'local_id'       => (int)($player['local_atual_id'] ?? 0),
-                'titulo'         => $titulo,
-                'descricao'      => $descricao,
-                'dados_json'     => $dadosJson,
-                'ativo'          => 1
-            ]);
-        } catch (Throwable $e) {
-            // evento não deve quebrar o fluxo principal
-        }
     }
 }

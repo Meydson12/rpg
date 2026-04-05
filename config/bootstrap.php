@@ -11,6 +11,7 @@ require_once __DIR__ . '/../core/MundoDebug.php';
 require_once __DIR__ . '/../core/Combate.php';
 require_once __DIR__ . '/../core/DesfechoCombate.php';
 require_once __DIR__ . '/../core/Evento.php';
+require_once __DIR__ . '/../core/EventoService.php';
 require_once __DIR__ . '/../controllers/PlayerController.php';
 require_once __DIR__ . '/../controllers/NPCController.php';
 require_once __DIR__ . '/../controllers/MagiaController.php';

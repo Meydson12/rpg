@@ -605,13 +605,84 @@ class MundoNPC
         return '';
     }
 
+    private function kaelFoiPoupadoRecentemente(Player $player, int $npcId): bool
+    {
+        try {
+            return $this->getEvento()->npcFoiPoupadoRecentemente(
+                $player->getId(),
+                $npcId
+            );
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private function registrarReacaoKaelAposPoupado(Player $player, int $npcId): void
+    {
+        try {
+            $this->getEvento()->registrarSeNaoExistir([
+                'tipo_evento'    => 'npc',
+                'subtipo_evento' => 'kael_reagiu_apos_poupado',
+                'personagem_id'  => $player->getId(),
+                'npc_id'         => $npcId,
+                'local_id'       => (int)($player->getDados()['local_atual_id'] ?? 0),
+                'titulo'         => 'Kael reagiu após ser poupado',
+                'descricao'      => 'Kael respondeu ao fato de ter sido poupado.',
+                'dados_json'     => [],
+                'ativo'          => 1
+            ]);
+        } catch (Throwable $e) {
+            // não quebra fluxo
+        }
+    }
+
+    private function montarDialogoKaelAposPoupado(array $relacao): array
+    {
+        $estado = $relacao['estado'] ?? 'neutro';
+
+        $mensagem = match ($estado) {
+            'hostil' =>
+            "Kael ainda respira com dificuldade, mas sustenta o olhar sem vacilar.\n\n" .
+                "\"Não pense que isso apagou o que eu vi... nem o que você carrega.\"\n\n" .
+                "Ele seca o sangue no canto da boca e continua:\n\n" .
+                "\"Mas você me poupou.\"\n\n" .
+                "\"Então não. Eu não vou fingir que isso não importa.\"",
+
+            'desconfiado' =>
+            "Kael pressiona o próprio ferimento e te observa.\n\n" .
+                "\"Você podia ter terminado.\"\n\n" .
+                "\"Ainda não sei o que pensar de você.\"",
+
+            'respeitoso' =>
+            "Kael respira fundo antes de falar.\n\n" .
+                "\"Você venceu... e ainda assim escolheu não matar.\"\n\n" .
+                "\"Isso diz mais do que qualquer discurso.\"",
+
+            'aliado' =>
+            "Kael mantém a postura, mesmo ferido.\n\n" .
+                "\"Boa escolha.\"\n\n" .
+                "\"Agora não jogue isso fora.\"",
+
+            default =>
+            "Kael ainda está de pé por puro esforço.\n\n" .
+                "\"Você podia ter me matado.\"\n\n" .
+                "\"Então fale. Mas saiba que eu vou lembrar disso.\""
+        };
+
+        return [
+            'tipo' => 'dialogo',
+            'mensagem' => $mensagem
+        ];
+    }
+
     /**
      * Processa o diálogo especial do Kael.
      *
      * Prioridade de tema:
-     * 1. Grimório em posse
-     * 2. Resquício do Grimório
-     * 3. Fala normal baseada na relação
+     * 1. Reação imediata após ser poupado
+     * 2. Grimório em posse
+     * 3. Resquício do Grimório
+     * 4. Fala normal baseada na relação
      *
      * Complementos possíveis:
      * - comentário do combate recente
@@ -621,6 +692,37 @@ class MundoNPC
     private function processarDialogoKael(Player $player, array $npc, array $localAtual = []): ?array
     {
         $npcId = (int) $npc['id'];
+        $relacao = $this->buscarRelacaoNpc($player, $npcId);
+
+        $foiPoupadoRecentemente = $this->kaelFoiPoupadoRecentemente($player, $npcId);
+
+        $jaReagiuAposPoupado = false;
+        try {
+            $jaReagiuAposPoupado = $this->getEvento()->npcJaReagiuAposPoupado(
+                $player->getId(),
+                $npcId
+            );
+        } catch (Throwable $e) {
+            $jaReagiuAposPoupado = false;
+        }
+
+        if (
+            $foiPoupadoRecentemente &&
+            !$jaReagiuAposPoupado &&
+            (int)($npc['vida_atual'] ?? 0) <= 1
+        ) {
+            $this->registrarReacaoKaelAposPoupado($player, $npcId);
+
+            $this->atualizarRelacaoNpc($player, $npcId, [
+                'afinidade' => 1,
+                'confianca' => 1,
+                'irritacao' => -1
+            ]);
+
+            $relacao = $this->buscarRelacaoNpc($player, $npcId);
+
+            return $this->montarDialogoKaelAposPoupado($relacao);
+        }
 
         $estaComGrimorio = false;
         $jaTeveContatoComGrimorio = false;
@@ -678,6 +780,19 @@ class MundoNPC
          * Kael hostil + player com Grimório = combate imediato.
          */
         if ($estadoRelacao === 'hostil' && $estaComGrimorio) {
+            $foiPoupadoRecentemente = $this->kaelFoiPoupadoRecentemente($player, $npcId);
+            $vidaNpc = (int)($npc['vida_atual'] ?? 0);
+
+            if ($foiPoupadoRecentemente && $vidaNpc <= 1) {
+                return [
+                    'tipo' => 'dialogo',
+                    'mensagem' =>
+                    "Kael endurece o olhar no instante em que percebe o Grimório novamente.\n\n" .
+                        "\"Não me faz mudar de ideia.\"\n\n" .
+                        "\"Você ainda está carregando isso... então não testa minha paciência.\""
+                ];
+            }
+
             return [
                 'tipo' => 'combate',
                 'mensagem' => "Kael trava o maxilar e avança um passo.\n\n\"Ô seu louco... o que você pensa que está fazendo com isso nas mãos?\"\n\nKael parte para cima de você.",
